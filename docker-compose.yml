@@ -1,0 +1,12 @@
+services:
+  develop:
+    build:
+      context: .
+      dockerfile: Dockerfile.develop
+    environment:
+      - ENV=/root/.bashrc
+    ports:
+      - 5173:5173
+    volumes:
+      - ./zikaho-web:/root/zikaho-web
+      - ./.bashrc:/root/.bashrc
