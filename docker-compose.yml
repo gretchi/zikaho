@@ -9,4 +9,6 @@ services:
       - 5173:5173
     volumes:
       - ./zikaho-web:/root/zikaho-web
+      - ./se:/root/se:ro
+      - ./voice:/root/voice:ro
       - ./.bashrc:/root/.bashrc

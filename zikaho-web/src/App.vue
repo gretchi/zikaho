@@ -1,85 +1,119 @@
 <script setup lang="ts">
-import { RouterLink, RouterView } from 'vue-router'
-import HelloWorld from './components/HelloWorld.vue'
+import { ref } from 'vue'
+import AmpPanel from './components/AmpPanel.vue'
+import BuildingPane from './components/BuildingPane.vue'
+import ReceiverPanel from './components/ReceiverPanel.vue'
+import SettingsDialog from './components/SettingsDialog.vue'
+import { start, state } from './sim/store'
+
+const showSettings = ref(false)
+const starting = ref(false)
+
+async function onStart() {
+  starting.value = true
+  await start()
+}
 </script>
 
 <template>
-  <header>
-    <img alt="Vue logo" class="logo" src="@/assets/logo.svg" width="125" height="125" />
-
-    <div class="wrapper">
-      <HelloWorld msg="You did it!" />
-
-      <nav>
-        <RouterLink to="/">Home</RouterLink>
-        <RouterLink to="/about">About</RouterLink>
-      </nav>
-    </div>
+  <header class="app-header">
+    <h1>P型受信機 シミュレーター</h1>
+    <span class="sub">自動火災報知設備＋非常放送設備</span>
+    <button class="gear" @click="showSettings = true">⚙ 設定</button>
   </header>
 
-  <RouterView />
+  <main class="panes">
+    <BuildingPane />
+    <ReceiverPanel />
+    <AmpPanel />
+  </main>
+
+  <div v-if="!state.ready" class="overlay">
+    <div class="card">
+      <h2>P型受信機 シミュレーター</h2>
+      <p>左の建物で感知器や発信機を作動させ、中央の受信機と右の非常放送設備を操作します。</p>
+      <p>音が鳴ります。音量に注意してください。</p>
+      <button class="start" :disabled="starting" @click="onStart">
+        {{ starting ? `音声を読み込み中… ${state.loading.done}/${state.loading.total}` : '開始する' }}
+      </button>
+    </div>
+  </div>
+
+  <SettingsDialog v-if="showSettings" @close="showSettings = false" />
 </template>
 
 <style scoped>
-header {
-  line-height: 1.5;
-  max-height: 100vh;
+.app-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
 }
-
-.logo {
-  display: block;
-  margin: 0 auto 2rem;
+h1 {
+  font-size: 18px;
+  margin: 0;
 }
-
-nav {
-  width: 100%;
+.sub {
   font-size: 12px;
-  text-align: center;
-  margin-top: 2rem;
+  color: var(--ink-2);
 }
-
-nav a.router-link-exact-active {
-  color: var(--color-text);
+.gear {
+  margin-left: auto;
+  font: inherit;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--hover);
+  color: var(--ink);
+  cursor: pointer;
 }
-
-nav a.router-link-exact-active:hover {
-  background-color: transparent;
+.panes {
+  display: grid;
+  grid-template-columns: minmax(330px, 1fr) minmax(400px, 1.15fr) minmax(340px, 1fr);
+  height: calc(100vh - 49px);
 }
-
-nav a {
-  display: inline-block;
-  padding: 0 1rem;
-  border-left: 1px solid var(--color-border);
-}
-
-nav a:first-of-type {
-  border: 0;
-}
-
-@media (min-width: 1024px) {
-  header {
-    display: flex;
-    place-items: center;
-    padding-right: calc(var(--section-gap) / 2);
+@media (max-width: 1150px) {
+  .panes {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
   }
-
-  .logo {
-    margin: 0 2rem 0 0;
-  }
-
-  header .wrapper {
-    display: flex;
-    place-items: flex-start;
-    flex-wrap: wrap;
-  }
-
-  nav {
-    text-align: left;
-    margin-left: -1rem;
-    font-size: 1rem;
-
-    padding: 1rem 0;
-    margin-top: 1rem;
-  }
+}
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 12, 16, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 30;
+}
+.card {
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 440px;
+  line-height: 1.6;
+}
+.card h2 {
+  margin: 0 0 8px;
+}
+.start {
+  margin-top: 8px;
+  font: inherit;
+  font-weight: 700;
+  padding: 10px 24px;
+  border-radius: 8px;
+  border: none;
+  background: var(--alarm);
+  color: #fff;
+  cursor: pointer;
+}
+.start:disabled {
+  opacity: 0.7;
+  cursor: progress;
 }
 </style>
