@@ -33,8 +33,23 @@ async function onStart() {
       <h2>P型受信機 シミュレーター</h2>
       <p>左の建物で感知器や発信機を作動させ、中央の受信機と右の非常放送設備を操作します。</p>
       <p>音が鳴ります。音量に注意してください。</p>
+      <section class="notice" aria-label="ご利用にあたって">
+        <h3>ご利用にあたって</h3>
+        <ul>
+          <li>
+            学習・趣味を目的とした非公式のシミュレーターです。実在のメーカー・製品とは関係ありません。動作や放送内容は、実際の設備や法令の基準と異なる場合があります。
+          </li>
+          <li>
+            <strong>悪用は禁止です。</strong>本シミュレーターの音声を実際の建物・公共の場所・放送設備で流すこと、いたずらや他人を驚かせる目的で使うこと、本物の非常放送と誤認されるおそれのある使い方をしないでください。
+          </li>
+          <li>
+            本シミュレーターの利用によって生じたいかなる損害・トラブルについても、作成者は一切の責任を負いません。
+          </li>
+          <li>実際の設備の点検や操作は、有資格者の指示と各設備の取扱説明書に従ってください。</li>
+        </ul>
+      </section>
       <button class="start" :disabled="starting" @click="onStart">
-        {{ starting ? `音声を読み込み中… ${state.loading.done}/${state.loading.total}` : '開始する' }}
+        {{ starting ? `音声を読み込み中… ${state.loading.done}/${state.loading.total}` : '同意して開始する' }}
       </button>
     </div>
   </div>
@@ -95,11 +110,37 @@ h1 {
   color: var(--ink);
   border-radius: 12px;
   padding: 24px;
-  max-width: 440px;
+  max-width: 520px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
   line-height: 1.6;
 }
 .card h2 {
   margin: 0 0 8px;
+}
+.notice {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--alarm);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.notice h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: var(--ink);
+}
+.notice ul {
+  margin: 0;
+  padding-left: 1.2em;
+}
+.notice li + li {
+  margin-top: 4px;
+}
+.notice strong {
+  color: var(--alarm);
 }
 .start {
   margin-top: 8px;
