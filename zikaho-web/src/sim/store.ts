@@ -169,20 +169,32 @@ function receiverSignal(zone: ZoneId, opts: { station?: boolean; test?: boolean 
   if (!state.receiver.sw.transferStop) ampSignal(zone, !!opts.station)
 }
 
+/** 感知器を作動させてから受信機が火災信号を受けるまでの時間（発信機は即時） */
+const DETECTOR_SIGNAL_DELAY_MS = 2000
+const deviceTimers = new Map<string, number>()
+
 export function clickDevice(id: string) {
   const dev = state.devices[id]!
   const def = DEVICES.find((d) => d.id === id)!
   dev.active = !dev.active
+  window.clearTimeout(deviceTimers.get(id))
+  deviceTimers.delete(id)
   if (!dev.active) {
     log(def.kind === 'station' ? `${def.label} 押しボタン復旧` : `${def.label} 煙・熱 除去`, 'op')
     return
   }
-  if (state.receiver.zones[def.zone].broken) {
-    log(`${def.label} 作動（回線断線のため受信できず）`, 'op')
-    return
+  const fire = () => {
+    deviceTimers.delete(id)
+    if (!dev.active) return
+    if (state.receiver.zones[def.zone].broken) {
+      log(`${def.label} 作動（回線断線のため受信できず）`, 'op')
+      return
+    }
+    if (def.kind !== 'station') dev.latched = true
+    receiverSignal(def.zone, { station: def.kind === 'station' })
   }
-  if (def.kind !== 'station') dev.latched = true
-  receiverSignal(def.zone, { station: def.kind === 'station' })
+  if (def.kind === 'station') fire()
+  else deviceTimers.set(id, window.setTimeout(fire, DETECTOR_SIGNAL_DELAY_MS))
 }
 
 export function toggleSwitch(key: keyof typeof state.receiver.sw) {
