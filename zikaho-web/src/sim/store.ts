@@ -447,6 +447,8 @@ const GAP = {
   betweenUnits: 1.0,
   /** ブロック間（地区ベルが鳴る区間） */
   betweenBlocks: 3.0,
+  /** 火災放送: 第2シグナルの後すぐ次の第1シグナルへ（素材の末尾に約0.5秒の余韻がある） */
+  afterSignal2: 0,
 }
 
 const SIG1 = 'sig1_soft'
@@ -569,7 +571,7 @@ function restartProgram() {
         guidePlayback = null
         if (gen !== programGen) return
       }
-      await sleep(GAP.betweenBlocks * 1000)
+      await sleep((a.mode === 'fire' ? GAP.afterSignal2 : GAP.betweenBlocks) * 1000)
     }
     if (gen === programGen) a.playing = false
   })()

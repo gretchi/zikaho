@@ -361,6 +361,9 @@ npm run dev   # http://localhost:5173/
 - `.github/workflows/pages.yml`: main への push（または手動実行）で `zikaho-web` をビルドし、`zikaho-web/dist` を GitHub Pages に配置する
 - 確認: `dist` を `/zikaho/` 配下に置いてローカルで配信し、Playwright で開始操作をした。音声まで読み込め、404 やコンソールの警告・エラーは出なかった
 - リポジトリ側の設定: Settings → Pages → Source を「GitHub Actions」にする必要がある
+- 公開（2026-11-16）: 最初の2回はデプロイが失敗した（Pages が未有効で 404）。`gh api -X POST repos/gretchi/zikaho/pages -f build_type=workflow` で有効にし、失敗したジョブを再実行して成功した
+  - 公開URL: <https://gretchi.github.io/zikaho/>
+  - 確認: トップと音声ファイルが 200 を返すこと、公開サイトで「同意して開始する」から音声の読み込みまで通ること（Playwright、エラーなし）
 
 ## 11. 作動から受信までの遅延（2026-11-16）
 
@@ -372,3 +375,19 @@ npm run dev   # http://localhost:5173/
   - 火災試験と、火災復旧後の再発報（1.5秒）は従来どおり
 - `BuildingPane.vue` の説明文に「約2秒後に受信機へ火災信号が入ります」を追記した
 - 確認: ビルドと lint は成功。Playwright で、3階の発信機を押すと0.3秒後には「発報放送中」になることを確かめた。5階の煙感知器を0.8秒で除去すると受信しなかった。コンソールエラーはなし
+
+## 12. アイコンと火災放送の間隔（2026-11-16）
+
+### 12.1 アイコン（favicon）
+
+- ユーザーの指示: 発信機のボタンを題材にアイコンを作る
+- `zikaho-web/public/favicon.svg`: 赤い角丸の箱に、白い枠と赤い押しボタン、「押」の文字
+- SVG を Playwright で描画し、`favicon.ico`（16/32/48px、PNG を格納）と `apple-touch-icon.png`（180px）を作った。Vue テンプレートの `favicon.ico` はこれで置き換えた
+- `index.html`: ico・svg・apple-touch-icon の3つを登録した（`base: './'` によりビルド後は相対パスになる）
+
+### 12.2 火災放送: 第2シグナルから次の第1シグナルまでの間
+
+- ユーザーの指摘: 火災放送で、第2シグナルから次の第1シグナルまでに間が空く
+- 原因: 火災放送でも、ブロック間に感知器発報放送と同じ待ち時間 `GAP.betweenBlocks`（3秒）を入れていた。素材の末尾にも約0.5秒の余韻があるため、実際の間は約3.5秒あった
+- 対応: `GAP.afterSignal2 = 0` を追加し、火災放送のときはブロック間で待たないようにした。感知器発報放送のブロック間（音声ガイド＋3秒）は変えていない
+- 確認: Playwright で再生開始時刻を記録した。第2シグナルの終了から次の第1シグナルの開始までは 0.055秒（これに素材末尾の余韻約0.5秒が加わる）。コンソールエラーはなし。ビルドと lint も成功
