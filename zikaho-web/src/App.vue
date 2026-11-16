@@ -46,6 +46,9 @@ async function onStart() {
             本シミュレーターの利用によって生じたいかなる損害・トラブルについても、作成者は一切の責任を負いません。
           </li>
           <li>実際の設備の点検や操作は、有資格者の指示と各設備の取扱説明書に従ってください。</li>
+          <li>
+            アクセス解析のため Google アナリティクス（Google タグマネージャー経由）を使用しています。Cookie を利用して匿名のトラフィックデータを収集します。
+          </li>
         </ul>
       </section>
       <button class="start" :disabled="starting" @click="onStart">
