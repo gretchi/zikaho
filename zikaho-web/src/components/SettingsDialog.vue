@@ -28,22 +28,11 @@ function clampTimers() {
         </label>
         <label class="chk"><input v-model="s.zoned" type="checkbox" />区分鳴動（オフで常に全館一斉）</label>
         <label class="chk"><input v-model="s.english" type="checkbox" />英語メッセージを付加</label>
-        <label>
-          第1シグナル
-          <select v-model="s.sig1">
-            <option value="sig1_strong">アタック強め</option>
-            <option value="sig1_soft">アタック弱め</option>
-          </select>
-        </label>
         <p class="note">タイマーの変更は、次に起動したときから反映されます。</p>
       </fieldset>
       <fieldset>
-        <legend>受信機</legend>
-        <label class="chk"><input v-model="s.bell" type="checkbox" />地区ベルを併設（放送設備がある建物では通常なし）</label>
-      </fieldset>
-      <fieldset>
         <legend>音量</legend>
-        <label>受信機（主音響・地区ベル）<input v-model.number="s.volReceiver" type="range" min="0" max="1" step="0.05" /></label>
+        <label>受信機（リレー音・操作音）<input v-model.number="s.volReceiver" type="range" min="0" max="1" step="0.05" /></label>
         <label>操作部（音声ガイド・操作音）<input v-model.number="s.volPanel" type="range" min="0" max="1" step="0.05" /></label>
         <label>放送（モニタ）<input v-model.number="s.volBroadcast" type="range" min="0" max="1" step="0.05" /></label>
       </fieldset>

@@ -1,18 +1,20 @@
 // シミュレーターの状態と動作ロジック
 //
 // 受信機（P型1級）
-//   感知器・発信機の作動 → 火災灯・地区表示灯・主音響（・地区音響）
+//   感知器・発信機の作動 → 火災灯・地区表示灯（主音響・地区音響は素材がないため表示のみ）
 //   移報 → 非常放送設備へ回線ごとの火災信号を送る（移報停止で遮断）
 //
 // 非常放送設備（自火報連動）
-//   感知器の火災信号    → 感知器発報放送（第1シグナル＋女声）
-//                         火災放送移行タイマー起動、操作部音声ガイド
-//   発信機 / 2信号目 / 火災SW / タイマー満了 → 火災放送（第1シグナル＋男声＋第2シグナル）
-//   非火災SW            → 非火災報放送（第1シグナル＋女声）を2回行い停止
-//   区分鳴動中に一定時間経過 or 新たな火災信号 → 全区域鳴動
+//   火災信号（感知器・発信機とも）→ 感知器発報放送（第1シグナル＋女声）×2 を1ブロックとして繰り返す
+//                         ブロックの合間に操作部の音声ガイド、火災放送移行タイマー起動
+//                         別回線の信号は鳴動区域を追加するだけ（女声のまま）
+//   火災SW / タイマー満了 → 火災放送（[第1シグナル＋男声]×2＋第2シグナル）
+//   非火災SW            → 非火災報放送（第1シグナル＋女声）×2 で停止
+//   火災放送中に一定時間経過 or 新たな火災信号 → 全区域鳴動
+//   地区ベル（表示のみ）: 放送の出力中とマイク使用中は一時停止（ベルカット）
 
 import { reactive, watch } from 'vue'
-import { AudioEngine, type SeqItem } from './audio'
+import { AudioEngine, type Playback, type SeqItem } from './audio'
 import {
   DEVICES,
   RECEIVER_LINES,
@@ -50,9 +52,7 @@ export const state = reactive({
     transferSec: 180,
     allAreaSec: 300,
     zoned: true,
-    english: false,
-    bell: false,
-    sig1: 'sig1_strong' as 'sig1_strong' | 'sig1_soft',
+    english: true,
     volReceiver: 0.35,
     volPanel: 0.8,
     volBroadcast: 0.9,
@@ -93,6 +93,8 @@ export const state = reactive({
     mic: false,
     guide: false,
     playing: false,
+    /** 放送を出力中（ベルカット中） */
+    onAir: false,
     caption: '',
   },
 })
@@ -115,6 +117,11 @@ function sfx(clip: string, bus: 'panel' | 'receiver' = 'panel', gain = 1) {
   engine.a?.playOnce(bus, clip, gain)
 }
 
+/** 放送出力レベル（dBFS）。音声エンジン未初期化なら -Infinity */
+export function broadcastLevelDb(): number {
+  return engine.a ? engine.a.broadcastLevelDb() : -Infinity
+}
+
 export function anyFire(): boolean {
   return ZONE_IDS.some((id) => state.receiver.zones[id].fire)
 }
@@ -122,6 +129,12 @@ export function anyFire(): boolean {
 export function switchCaution(): boolean {
   const sw = state.receiver.sw
   return sw.mainStop || sw.areaStop || sw.transferStop || sw.fireTest || sw.contTest || sw.autoRestore
+}
+
+/** 地区ベル（音声素材がないため表示のみ）: 放送出力中・マイク使用中は一時停止 */
+export function bellState(): 'off' | 'ring' | 'cut' {
+  if (!anyFire() || state.receiver.sw.areaStop) return 'off'
+  return state.amp.onAir || state.amp.mic ? 'cut' : 'ring'
 }
 
 export function stationLamp(zone: ZoneId): boolean {
@@ -281,12 +294,11 @@ function ampSignal(zone: ZoneId, station: boolean) {
       a.origin = zone
       a.startedAt = now
       a.allArea = false
-      if (station) startFire('発信機の作動')
-      else startDetection()
+      startDetection()
       break
     case 'detection':
-      if (station) startFire('発信機の作動')
-      else if (isNewZone) startFire('別回線の火災信号（2信号）')
+      // 発信機・別回線の信号でも初報は女声のまま。鳴動区域だけ追加する
+      if (isNewZone) recomputeAreas()
       break
     case 'fire':
       if (isNewZone && state.settings.zoned && !a.allArea) {
@@ -303,10 +315,10 @@ function startDetection() {
   a.mode = 'detection'
   a.transferAt = a.startedAt + state.settings.transferSec * 1000
   a.allAt = a.startedAt + Math.max(state.settings.allAreaSec, state.settings.transferSec) * 1000
+  a.guide = true
   log('非常放送: 感知器発報放送 起動')
   recomputeAreas()
   restartProgram()
-  startGuide()
 }
 
 function startFire(reason: string) {
@@ -356,6 +368,7 @@ export function ampButton(
       break
     case 'guideStop':
       a.guide = false
+      guidePlayback?.stop()
       break
     case 'reset':
       ampReset()
@@ -385,6 +398,7 @@ function ampReset() {
   a.allAt = null
   a.mic = false
   a.guide = false
+  a.onAir = false
   a.caption = ''
   sfx('relay2', 'panel')
   log('非常放送: 復旧', 'op')
@@ -410,15 +424,20 @@ const JA_TEXT = {
 
 /** 区切りの間（秒）。素材の前後無音を削ったうえでここで一定にする */
 const GAP = {
-  afterSignal: 0.6,
+  afterSignal: 0.5,
   afterTadaima: 0.12,
   afterPlace: 0.16,
   afterKaji: 0.35,
   beforeEnglish: 0.9,
   enPart: 0.1,
   beforeSignal2: 0.6,
-  betweenUnits: 1.2,
+  /** 同じブロック内のユニット間 */
+  betweenUnits: 1.0,
+  /** ブロック間（地区ベルが鳴る区間） */
+  betweenBlocks: 3.0,
 }
+
+const SIG1 = 'sig1_soft'
 
 const SIGNAL_GAIN = 0.32
 
@@ -426,7 +445,7 @@ function buildUnit(mode: AmpMode): SeqItem[] | null {
   const a = state.amp
   const s = state.settings
   const place = a.origin ? zoneDef(a.origin) : null
-  const sig1: SeqItem = { clip: s.sig1, caption: '♪ 第1シグナル', gain: SIGNAL_GAIN }
+  const sig1: SeqItem = { clip: SIG1, caption: '♪ 第1シグナル', gain: SIGNAL_GAIN }
   const items: SeqItem[] = [sig1, { gap: GAP.afterSignal }]
   if (mode === 'detection') {
     items.push({
@@ -454,7 +473,6 @@ function buildUnit(mode: AmpMode): SeqItem[] | null {
       if (place) items.push({ gap: GAP.enPart }, { clip: `en/occurrence_2_${place.en}` })
       items.push({ gap: GAP.enPart }, { clip: 'en/occurrence_3' })
     }
-    items.push({ gap: GAP.beforeSignal2 }, { clip: 'sig2', caption: '♪ 第2シグナル', gain: SIGNAL_GAIN })
   } else if (mode === 'nonfire') {
     items.push({ clip: 'ja/falsealerm_1', caption: JA_TEXT.nonfire })
     if (s.english) {
@@ -466,6 +484,21 @@ function buildUnit(mode: AmpMode): SeqItem[] | null {
   return items
 }
 
+/**
+ * 放送1ブロック（実機の動画に合わせた構成）
+ *  感知器発報・非火災報: ユニット×2
+ *  火災: ユニット×2 ＋ 第2シグナル
+ */
+function buildBlock(mode: AmpMode): SeqItem[] | null {
+  const unit = buildUnit(mode)
+  if (!unit) return null
+  const items = [...unit, { gap: GAP.betweenUnits }, ...buildUnit(mode)!]
+  if (mode === 'fire') {
+    items.push({ gap: GAP.beforeSignal2 }, { clip: 'sig2', caption: '♪ 第2シグナル', gain: SIGNAL_GAIN })
+  }
+  return items
+}
+
 let programGen = 0
 let programStop: (() => void) | null = null
 
@@ -473,8 +506,14 @@ function stopProgram() {
   programGen++
   programStop?.()
   programStop = null
+  guidePlayback?.stop()
+  guidePlayback = null
   state.amp.playing = false
+  state.amp.onAir = false
 }
+
+let guidePlayback: Playback | null = null
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 function restartProgram() {
   stopProgram()
@@ -491,54 +530,36 @@ function restartProgram() {
   const eng = engine.a
   a.playing = true
   void (async () => {
-    let units = 0
     while (gen === programGen) {
-      const items = buildUnit(a.mode)
+      const items = buildBlock(a.mode)
       if (!items) break
+      a.onAir = true
       const pb = eng.playSequence('broadcast', items, (c) => {
         if (gen === programGen) a.caption = c
       })
       programStop = pb.stop
       const ok = await pb.done
       if (!ok || gen !== programGen) return
-      units++
-      if (a.mode === 'nonfire' && units >= 2) {
-        // 非火災報放送は2回で終了
+      a.onAir = false
+      if (a.mode === 'nonfire') {
+        // 非火災報放送は1ブロック（2回）で終了
         a.playing = false
         a.areas = []
         a.caption = '非火災報放送 終了（復旧してください）'
         log('非常放送: 非火災報放送 終了')
         return
       }
-      await new Promise((r) => setTimeout(r, GAP.betweenUnits * 1000))
+      // ブロックの合間: 感知器発報中は操作部の音声ガイド
+      if (a.mode === 'detection' && a.guide) {
+        a.caption = '（操作部 音声ガイド）'
+        guidePlayback = eng.playSequence('panel', [{ clip: 'pi4' }, { gap: 0.4 }, { clip: 'guide' }])
+        await guidePlayback.done
+        guidePlayback = null
+        if (gen !== programGen) return
+      }
+      await sleep(GAP.betweenBlocks * 1000)
     }
     if (gen === programGen) a.playing = false
-  })()
-}
-
-// ---------------------------------------------------------------- operation-panel guidance
-
-let guideGen = 0
-let guideStop: (() => void) | null = null
-
-function startGuide() {
-  state.amp.guide = true
-}
-
-function runGuide(on: boolean) {
-  guideGen++
-  guideStop?.()
-  guideStop = null
-  if (!on || !engine.a) return
-  const gen = guideGen
-  const eng = engine.a
-  void (async () => {
-    while (gen === guideGen) {
-      const pb = eng.playSequence('panel', [{ clip: 'pi4' }, { gap: 0.4 }, { clip: 'guide' }])
-      guideStop = pb.stop
-      if (!(await pb.done) || gen !== guideGen) return
-      await new Promise((r) => setTimeout(r, 2500))
-    }
   })()
 }
 
@@ -578,22 +599,6 @@ export async function start() {
       eng.setVolume('broadcast', b!)
     },
     { immediate: true },
-  )
-  // 主音響
-  watch(
-    () => anyFire() && !state.receiver.sw.mainStop,
-    (on) => (on ? eng.startLoop('main', 'receiver', 'buzzer', 0.5) : eng.stopLoop('main')),
-    { immediate: true },
-  )
-  // 地区音響（非常放送併設時は通常なし。設定で有効化）
-  watch(
-    () => state.settings.bell && anyFire() && !state.receiver.sw.areaStop && !state.amp.mic,
-    (on) => (on ? eng.startLoop('bell', 'receiver', 'bell', 0.7) : eng.stopLoop('bell')),
-    { immediate: true },
-  )
-  watch(
-    () => state.amp.guide,
-    (on) => runGuide(on),
   )
   // 区分鳴動の設定変更は即時反映
   watch(

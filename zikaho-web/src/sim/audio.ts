@@ -2,7 +2,6 @@
 //  - 音声ファイルの読み込み
 //  - 合成音声の前後の無音トリミングと音量の正規化（つなぎ目の違和感対策）
 //  - クリップ列の隙間なし連続再生（間隔はこちらで制御）
-//  - 受信機の主音響・地区ベルの合成
 
 import { ZONES } from './building'
 
@@ -25,7 +24,6 @@ const BASE = import.meta.env.BASE_URL
 
 function clipSpecs(): Record<string, ClipSpec> {
   const specs: Record<string, ClipSpec> = {
-    sig1_strong: { url: 'se/dai_1_keiho_attack_tuyome.wav' },
     sig1_soft: { url: 'se/dai_1_keiho_attack_yowame.wav' },
     sig2: { url: 'se/dai_2_keiho.wav' },
     guide: { url: 'se/kidou.wav', voice: true },
@@ -50,9 +48,13 @@ const VOICE_TARGET_RMS = 0.11
 
 export class AudioEngine {
   readonly ctx: AudioContext
+  /** 音源の接続先（ユニティゲイン）。放送系はここでレベルを計測する */
   private buses: Record<BusName, GainNode>
+  /** 音量（モニタ音量） */
+  private volumes: Record<BusName, GainNode>
+  private analyser: AnalyserNode
+  private levelBuf: Float32Array<ArrayBuffer>
   private buffers = new Map<string, AudioBuffer>()
-  private loops = new Map<string, AudioBufferSourceNode>()
   readonly missing: string[] = []
 
   constructor() {
@@ -61,12 +63,22 @@ export class AudioEngine {
     master.threshold.value = -6
     master.ratio.value = 8
     master.connect(this.ctx.destination)
-    const mk = () => {
+    const mkVol = () => {
       const g = this.ctx.createGain()
       g.connect(master)
       return g
     }
-    this.buses = { receiver: mk(), panel: mk(), broadcast: mk() }
+    this.volumes = { receiver: mkVol(), panel: mkVol(), broadcast: mkVol() }
+    const mkIn = (name: BusName) => {
+      const g = this.ctx.createGain()
+      g.connect(this.volumes[name])
+      return g
+    }
+    this.buses = { receiver: mkIn('receiver'), panel: mkIn('panel'), broadcast: mkIn('broadcast') }
+    this.analyser = this.ctx.createAnalyser()
+    this.analyser.fftSize = 2048
+    this.levelBuf = new Float32Array(this.analyser.fftSize)
+    this.buses.broadcast.connect(this.analyser)
   }
 
   async load(onProgress?: (done: number, total: number) => void): Promise<void> {
@@ -87,8 +99,6 @@ export class AudioEngine {
         onProgress?.(++done, specs.length)
       }),
     )
-    this.buffers.set('buzzer', this.synthBuzzer())
-    this.buffers.set('bell', this.synthBell())
   }
 
   has(key: string): boolean {
@@ -96,7 +106,15 @@ export class AudioEngine {
   }
 
   setVolume(bus: BusName, v: number) {
-    this.buses[bus].gain.setTargetAtTime(v, this.ctx.currentTime, 0.02)
+    this.volumes[bus].gain.setTargetAtTime(v, this.ctx.currentTime, 0.02)
+  }
+
+  /** 放送出力のレベル（dBFS, ピーク）。モニタ音量の影響を受けない */
+  broadcastLevelDb(): number {
+    this.analyser.getFloatTimeDomainData(this.levelBuf)
+    let peak = 0
+    for (const v of this.levelBuf) peak = Math.max(peak, Math.abs(v))
+    return peak > 0 ? 20 * Math.log10(peak) : -Infinity
   }
 
   /**
@@ -170,49 +188,6 @@ export class AudioEngine {
     return out
   }
 
-  /** 受信機の主音響（電子ブザー）1秒ループ */
-  private synthBuzzer(): AudioBuffer {
-    const sr = this.ctx.sampleRate
-    const buf = this.ctx.createBuffer(1, sr, sr)
-    const d = buf.getChannelData(0)
-    for (let i = 0; i < sr; i++) {
-      const t = i / sr
-      // 整数周波数で1秒ループを継ぎ目なしにする
-      const sq = Math.sin(2 * Math.PI * 830 * t) > 0 ? 1 : -1
-      const h = Math.sin(2 * Math.PI * 1660 * t) * 0.3
-      const am = 0.8 + 0.2 * Math.sin(2 * Math.PI * 50 * t)
-      d[i] = (sq * 0.5 + h) * am * 0.35
-    }
-    return buf
-  }
-
-  /** 地区ベル（連打される金属音）1秒ループ */
-  private synthBell(): AudioBuffer {
-    const sr = this.ctx.sampleRate
-    const buf = this.ctx.createBuffer(1, sr, sr)
-    const d = buf.getChannelData(0)
-    const strikes = 18
-    const partials: [number, number][] = [
-      [1900, 1],
-      [4180, 0.5],
-      [5560, 0.3],
-      [7200, 0.15],
-    ]
-    for (let s = 0; s < strikes; s++) {
-      const t0 = Math.round((s / strikes) * sr)
-      for (let i = 0; i < sr; i++) {
-        const idx = (t0 + i) % sr
-        const t = i / sr
-        const env = Math.exp(-t / 0.045)
-        if (env < 0.001) break
-        let v = 0
-        for (const [f, a] of partials) v += Math.sin(2 * Math.PI * f * t) * a
-        d[idx]! += v * env * 0.16
-      }
-    }
-    return buf
-  }
-
   playOnce(bus: BusName, clip: string, gain = 1) {
     const buf = this.buffers.get(clip)
     if (!buf) return
@@ -222,31 +197,6 @@ export class AudioEngine {
     g.gain.value = gain
     src.connect(g).connect(this.buses[bus])
     src.start()
-  }
-
-  startLoop(name: string, bus: BusName, clip: string, gain = 1) {
-    if (this.loops.has(name)) return
-    const buf = this.buffers.get(clip)
-    if (!buf) return
-    const src = this.ctx.createBufferSource()
-    src.buffer = buf
-    src.loop = true
-    const g = this.ctx.createGain()
-    g.gain.value = gain
-    src.connect(g).connect(this.buses[bus])
-    src.start()
-    this.loops.set(name, src)
-  }
-
-  stopLoop(name: string) {
-    const src = this.loops.get(name)
-    if (!src) return
-    try {
-      src.stop()
-    } catch {
-      /* already stopped */
-    }
-    this.loops.delete(name)
   }
 
   /** クリップ列をサンプル精度で連続再生する */

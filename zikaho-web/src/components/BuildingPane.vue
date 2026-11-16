@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import DeviceIcon from './DeviceIcon.vue'
 import SpeakerIcon from './SpeakerIcon.vue'
 import { ZONES, type ZoneId } from '@/sim/building'
-import { anyFire, setAcPower, setBroken, state } from '@/sim/store'
+import { bellState, setAcPower, setBroken, state } from '@/sim/store'
 
 const floors = computed(() => ZONES.filter((z) => z.kind === 'floor').reverse())
 
@@ -11,15 +11,12 @@ function speaking(id: ZoneId): boolean {
   const a = state.amp
   return a.areas.includes(id) && (a.playing || a.mic)
 }
-const bellOn = computed(
-  () => state.settings.bell && anyFire() && !state.receiver.sw.areaStop && !state.amp.mic,
-)
 </script>
 
 <template>
   <section class="pane building" aria-label="建物（感知器・発信機）">
     <h2 class="pane-title">建物</h2>
-    <p class="hint">アイコンをクリックすると感知器が作動します。もう一度クリックすると煙・熱を除去します。感知器の作動灯は受信機で復旧するまで点灯したままです。</p>
+    <p class="hint">アイコンをクリックすると感知器が作動します。もう一度クリックすると煙・熱を除去します。感知器の作動灯は受信機で復旧するまで点灯したままです。🔔 は地区ベルです（音声素材がないため表示のみ。揺れていれば鳴動中、点線枠なら放送中のため一時停止）。</p>
 
     <div class="grid">
       <!-- 屋上・EV機械室 -->
@@ -41,7 +38,12 @@ const bellOn = computed(
           </div>
           <div class="outputs">
             <SpeakerIcon :on="speaking(f.id)" :label="f.label" />
-            <span v-if="state.settings.bell" class="bell" :class="{ on: bellOn }" title="地区ベル">🔔</span>
+            <span
+              class="bell"
+              :class="bellState()"
+              :title="`${f.label} 地区ベル（${{ off: '停止', ring: '鳴動中', cut: '放送中のため一時停止' }[bellState()]}）`"
+              >🔔</span
+            >
           </div>
         </div>
       </template>
@@ -141,6 +143,31 @@ const bellOn = computed(
 .roof {
   grid-row: 1;
 }
+.bell {
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.3;
+  filter: grayscale(1);
+}
+.bell.ring {
+  opacity: 1;
+  filter: none;
+  animation: shake 0.1s infinite alternate;
+}
+.bell.cut {
+  opacity: 0.8;
+  filter: grayscale(0.6);
+  outline: 1px dashed var(--ink-3);
+  border-radius: 4px;
+}
+@keyframes shake {
+  from {
+    transform: rotate(-14deg);
+  }
+  to {
+    transform: rotate(14deg);
+  }
+}
 .devices {
   display: flex;
   flex-wrap: wrap;
@@ -151,14 +178,6 @@ const bellOn = computed(
   flex-direction: column;
   align-items: center;
   gap: 2px;
-}
-.bell {
-  font-size: 14px;
-  opacity: 0.35;
-}
-.bell.on {
-  opacity: 1;
-  animation: shake 0.12s infinite alternate;
 }
 .shaft-top {
   grid-row: 1;
@@ -241,13 +260,5 @@ const bellOn = computed(
   display: inline-flex;
   gap: 4px;
   align-items: center;
-}
-@keyframes shake {
-  from {
-    transform: rotate(-12deg);
-  }
-  to {
-    transform: rotate(12deg);
-  }
 }
 </style>
