@@ -50,6 +50,8 @@ function audioAssets(): Plugin {
 
 // https://vite.dev/config/
 export default defineConfig({
+  // 相対パスで出力し、GitHub Pages（/zikaho/ 配下）でもそのまま動くようにする
+  base: './',
   plugins: [vue(), vueDevTools(), audioAssets()],
   resolve: {
     alias: {

@@ -354,3 +354,10 @@ npm run dev   # http://localhost:5173/
   - 実際の設備は有資格者の指示と取扱説明書に従うこと
 - 開始ボタンの文言を「同意して開始する」に変えた
 - 確認: ビルドと lint は成功。1280px（ライト）と 375px（ダーク）で表示を確かめ、開始できることも確認した
+
+## 10. GitHub Pages での公開（2026-11-16）
+
+- `vite.config.ts`: `base: './'` にした。出力が相対パスになり、`https://<user>.github.io/zikaho/` のようなサブパスでも動く
+- `.github/workflows/pages.yml`: main への push（または手動実行）で `zikaho-web` をビルドし、`zikaho-web/dist` を GitHub Pages に配置する
+- 確認: `dist` を `/zikaho/` 配下に置いてローカルで配信し、Playwright で開始操作をした。音声まで読み込め、404 やコンソールの警告・エラーは出なかった
+- リポジトリ側の設定: Settings → Pages → Source を「GitHub Actions」にする必要がある
